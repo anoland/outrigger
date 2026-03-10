@@ -1,89 +1,85 @@
-package main
+package rebalance
 
 import (
 	"math"
+
+	"github.com/luthermonson/go-proxmox"
 )
 
-// VM represents a virtual machine in the Proxmox cluster.
-type VM struct {
-	ID        int
-	Name      string
-	MemUsedGB float64
-}
-
-// Node represents a node in the Proxmox cluster.
-type Node struct {
-	Name      string
-	MemUsedGB float64
-	VMs       []VM
-}
-
-// RebalancePlan represents a plan to move a VM from a source to a destination node.
-type RebalancePlan struct {
-	VM          VM
+// Plan represents a plan to move a VM from a source to a destination node.
+type Plan struct {
+	VM          *proxmox.VirtualMachine
 	Source      string
 	Destination string
 	Improvement float64
 }
 
-// calculateSD returns the mean and standard deviation of memory usage across the nodes.
-func calculateSD(nodes []Node) (float64, float64) {
+// CalculateSD returns the mean and standard deviation of memory usage across the nodes.
+func CalculateSD(nodes []*proxmox.Node) (float64, float64) {
 	var sum float64
 	for _, n := range nodes {
-		sum += n.MemUsedGB
+		sum += float64(n.Memory.Total) / 1024 / 1024 / 1024
 	}
 	mean := sum / float64(len(nodes))
 
 	var sqDiffSum float64
 	for _, n := range nodes {
-		sqDiffSum += math.Pow(n.MemUsedGB-mean, 2)
+		memUsedGB := float64(n.Memory.Total) / 1024 / 1024 / 1024
+		sqDiffSum += math.Pow(memUsedGB-mean, 2)
 	}
 	sd := math.Sqrt(sqDiffSum / float64(len(nodes)))
 	return mean, sd
 }
 
-// selectBestMove finds the best VM to move to improve the cluster's memory balance.
-func selectBestMove(nodes []Node, mean float64, currentSD float64) (RebalancePlan, bool) {
-	var bestPlan RebalancePlan
+// SelectBestMove finds the best VM to move to improve the cluster's memory balance.
+func SelectBestMove(nodes []*proxmox.Node, vms []*proxmox.VirtualMachine, mean float64, currentSD float64) (Plan, bool) {
+	var bestPlan Plan
 	var found bool
 	maxImprovement := 0.0
 
 	// Identify the heavy and light nodes
-	var heavyNode, lightNode *Node
+	var heavyNode, lightNode *proxmox.Node
 	maxDist, minDist := -1.0, 1.0
 
-	for i := range nodes {
-		dist := nodes[i].MemUsedGB - mean
+	for _, n := range nodes {
+		memUsedGB := float64(n.Memory.Total) / 1024 / 1024 / 1024
+		dist := memUsedGB - mean
 		if dist > maxDist {
 			maxDist = dist
-			heavyNode = &nodes[i]
+			heavyNode = n
 		}
 		if dist < minDist {
 			minDist = dist
-			lightNode = &nodes[i]
+			lightNode = n
 		}
 	}
 
-	if heavyNode == nil || lightNode == nil || heavyNode == lightNode {
+	if heavyNode == nil || lightNode == nil || heavyNode.Name == lightNode.Name {
 		return bestPlan, false
 	}
 
 	// Evaluate VMs on the heavy node
-	overage := heavyNode.MemUsedGB - mean
-	for _, vm := range heavyNode.VMs {
+	heavyNodeMemUsedGB := float64(heavyNode.Memory.Total) / 1024 / 1024 / 1024
+	overage := heavyNodeMemUsedGB - mean
+	for _, vm := range vms {
+		if vm.Node != heavyNode.Name {
+			continue
+		}
+
+		vmMemUsedGB := float64(vm.Mem) / 1024 / 1024 / 1024
 		// Don't move a VM that is larger than the overage + 10% (prevents over-correction)
-		if vm.MemUsedGB > overage*1.1 {
+		if vmMemUsedGB > overage*1.1 {
 			continue
 		}
 
 		// Simulate the move
 		projectedLoads := []float64{}
 		for _, n := range nodes {
-			load := n.MemUsedGB
+			load := float64(n.Memory.Total) / 1024 / 1024 / 1024
 			if n.Name == heavyNode.Name {
-				load -= vm.MemUsedGB
+				load -= vmMemUsedGB
 			} else if n.Name == lightNode.Name {
-				load += vm.MemUsedGB
+				load += vmMemUsedGB
 			}
 			projectedLoads = append(projectedLoads, load)
 		}
@@ -94,7 +90,7 @@ func selectBestMove(nodes []Node, mean float64, currentSD float64) (RebalancePla
 
 		if improvement > maxImprovement {
 			maxImprovement = improvement
-			bestPlan = RebalancePlan{
+			bestPlan = Plan{
 				VM:          vm,
 				Source:      heavyNode.Name,
 				Destination: lightNode.Name,
