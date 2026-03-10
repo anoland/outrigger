@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/luthermonson/go-proxmox"
 )
@@ -17,10 +18,10 @@ func main() {
 			},
 		},
 	}
-	tokenID := "root@pam!mytoken"
-	secret := "somegeneratedapitokenguidefromtheproxmoxui"
+	tokenID := os.Getenv("PVE_TOKEN_ID")
+	secret := os.Getenv("PVE_TOKEN_SECRET")
 
-	client := proxmox.NewClient("https://localhost:8006/api2/json",
+	client := proxmox.NewClient(os.Getenv("PVE_ENDPOINT"),
 		proxmox.WithHTTPClient(&insecureHTTPClient),
 		proxmox.WithAPIToken(tokenID, secret),
 	)
