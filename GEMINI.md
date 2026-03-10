@@ -4,7 +4,7 @@ This project, "outrigger", is a command-line tool written in Go for managing and
 
 The primary functionality of this tool is to analyze the memory usage of the nodes in a Proxmox cluster and identify opportunities to improve the balance by migrating virtual machines (VMs) between nodes. The goal is to reduce the standard deviation of memory usage across the cluster, leading to a more stable and efficient environment.
 
-The core logic for determining the rebalancing plan is contained in the `gemini_code.go` file. This logic can be run in "dry-run" mode, which will only print the proposed changes, or in "live" mode, which will execute the VM migrations.
+The core logic for determining the rebalancing plan, including data structures for `VM`, `Node`, and `RebalancePlan`, along with functions like `calculateSD` and `selectBestMove`, is now contained in the `cluster.go` file. The main execution flow, including command-line flag parsing and integration with the Proxmox client, resides in `main.go`. This logic can be run in "dry-run" mode, which will only print the proposed changes, or in "live" mode, which will execute the VM migrations.
 
 # Building and Running
 
@@ -32,7 +32,7 @@ To run the application, you will need to provide the following environment varia
 You can then run the application with the following command:
 
 ```sh
-go run main.go
+go run ./
 ```
 
 ### Command-line Flags
@@ -43,7 +43,7 @@ go run main.go
 # Development Conventions
 
 - The code is formatted using the standard Go formatting tools (`gofmt`, `goimports`).
-- The project is organized into two packages:
-    - `main`: Contains the main application entry point and Proxmox API client initialization.
-    - `gemini`: Contains the core logic for cluster analysis and rebalancing.
+- The project is organized into a single `main` package:
+    - `main.go`: Contains the main application entry point, command-line flag parsing, and Proxmox API client initialization, and the rebalancing execution flow.
+    - `cluster.go`: Contains the data structures (`VM`, `Node`, `RebalancePlan`) and core logic for cluster analysis and rebalancing.
 - All dependencies are managed using Go modules.
